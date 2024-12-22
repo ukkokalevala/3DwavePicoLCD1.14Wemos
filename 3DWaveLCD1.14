@@ -1,0 +1,92 @@
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7789.h>
+#include <SPI.h>
+
+// Pin definitions for Wemos D1
+#define TFT_CS    D2   // Chip select
+#define TFT_DC    D3   // Data/Command
+#define TFT_RST   D4   // Reset
+#define SOUND_SENSOR_PIN A0 // Analog pin for sound sensor
+
+// Screen dimensions
+#define SCREEN_WIDTH 240
+#define SCREEN_HEIGHT 135
+
+// Initialize the display
+Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
+
+// Wave parameters
+const int depthLayers = 5;                // Number of depth layers for 3D effect
+float waveData[depthLayers][SCREEN_WIDTH]; // Store waveforms for each layer
+float amplitude = 10;                     // Initial amplitude
+float sensitivity = 5.0;                  // Sensitivity multiplier
+float baseAmplitude = 2;                  // Base amplitude for soft sounds
+
+void setup() {
+  Serial.begin(115200);
+
+  // Initialize the LCD
+  tft.init(135, 240);          // Initialize with screen width and height
+  tft.setRotation(3);          // Rotate for landscape orientation
+  tft.fillScreen(ST77XX_BLACK);
+
+  // Initialize sound sensor pin
+  pinMode(SOUND_SENSOR_PIN, INPUT);
+
+  // Initialize wave data
+  for (int i = 0; i < depthLayers; i++) {
+    for (int x = 0; x < SCREEN_WIDTH; x++) {
+      waveData[i][x] = SCREEN_HEIGHT / 2;
+    }
+  }
+}
+
+void loop() {
+  // Read sound sensor data
+  int soundLevel = analogRead(SOUND_SENSOR_PIN);
+
+  // Map the sound level to a usable range
+  float normalized = pow((float)map(soundLevel, 0, 1023, 0, 100) / 100, 1.5) * (SCREEN_HEIGHT / 8);
+
+  // Adjust amplitude dynamically
+  amplitude = baseAmplitude + (amplitude * 0.7 + (normalized * sensitivity) * 0.3);
+
+  // Shift old wave data backward
+  for (int i = depthLayers - 1; i > 0; i--) {
+    for (int x = 0; x < SCREEN_WIDTH; x++) {
+      waveData[i][x] = waveData[i - 1][x];
+    }
+  }
+
+  // Generate new front wave
+  for (int x = 0; x < SCREEN_WIDTH; x++) {
+    waveData[0][x] = SCREEN_HEIGHT / 2 + amplitude * sin((x * 0.15) + millis() / 150.0);
+  }
+
+  // Draw the 3D wave
+  for (int layer = depthLayers - 1; layer >= 0; layer--) {
+    uint16_t color = getColor(layer); // Get a gradient color based on depth
+
+    for (int x = 0; x < SCREEN_WIDTH; x++) {
+      int y = waveData[layer][x];
+
+      // Erase the previous point by drawing black
+      if (layer < depthLayers - 1) {
+        tft.drawPixel(x, waveData[layer + 1][x], ST77XX_BLACK);
+      }
+
+      // Draw the current point
+      tft.drawPixel(x, y, color);
+    }
+  }
+
+  delay(30); // Short delay for smoother animation
+}
+
+// Function to create a gradient color for each layer
+uint16_t getColor(int layer) {
+  int red = 255 - layer * 40;  // Decrease red for deeper layers
+  int green = layer * 40;      // Increase green for deeper layers
+  int blue = 180;              // Keep blue constant
+  return tft.color565(red, green, blue);
+}
